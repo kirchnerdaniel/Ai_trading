@@ -7,11 +7,12 @@ from matplotlib import pyplot  as plt
 
 class RNNModel:
     
+    # Beállítom a modellt. Forecast_horizon: ennyivel jósol későbbre, timestep: ennyi időegységet vesz figyelembe, split: szét osztja validációs és tanító adatokra 
     def __init__(self, forecast_horizon=3, timestep=10, df=None, candles=None, split=1):
         
         self.forecast_horizon = forecast_horizon
         self.timestep = timestep
-        self.X_scaler = MinMaxScaler(feature_range=(0,1))
+        self.X_scaler = MinMaxScaler(feature_range=(0,1)) #2 skálázót használtam, mert az Y-ban, csak 1 féle érték van
         self.Y_scaler = MinMaxScaler(feature_range=(0,1))
         self.model = self.create_model(df, candles, split)
 
@@ -36,7 +37,8 @@ class RNNModel:
 
         else:
             raise ValueError("Either 'df' or 'candles' must be provided.")
-
+        
+        #Indikátorokat számol
         vwap_values = calculate_vwap(close_prices=closing_prices, high_prices=high_prices, low_prices=low_prices, volume=volumen, period=8)
         rsi_values = calculate_rsi(close_prices=closing_prices, period=8)
         
@@ -53,19 +55,21 @@ class RNNModel:
         rsi_values = rsi_values[-min_length:]
         vwap_values = vwap_values[-min_length:]
         
+        #Ezeket az adatokat kapja, azért, hogy ne legyen trend. Az RSI 0-100 között mozog. A volumen pár helyen 0, ezért van az epsilon
         epsilon = 1e-8
-        
+    
         for i in range(1, min_length - self.forecast_horizon):  
             x_data.append([
-                (opening_prices[i] + epsilon) / (closing_prices[i] + epsilon), 
+                (closing_prices[i] - closing_prices[i-1]) / closing_prices[i-1],
                 rsi_values[i],  
-                (volumen[i] + epsilon) / (volumen[i-1] + epsilon),
-                (high_prices[i] + epsilon) / (low_prices[i] + epsilon),  
-                (vwap_values[i] + epsilon) / (vwap_values[i-1] + epsilon)  
+                (volumen[i] - volumen[i-1]) / (volumen[i-1] + epsilon),  
+                (vwap_values[i] - vwap_values[i-1]) / vwap_values[i-1]  
             ])
 
-            y_data.append([closing_prices[i + self.forecast_horizon] / closing_prices[i]])  
-    
+            y_data.append([
+                (closing_prices[i + self.forecast_horizon] - closing_prices[i]) / closing_prices[i]
+            ])
+
         print(len(x_data), len(y_data))
 
         return np.array(x_data), np.array(y_data)
@@ -101,7 +105,7 @@ class RNNModel:
 
         return scaled_train_data, scaled_test_data, scaled_train_close, scaled_test_close
 
-
+    #Ezeket úgy másoltam ki, csak átírtam 1D-re, küldöm róla a linket
     def IdentityBlock(self, prev_Layer , filters):
         f1 , f2 , f3 = filters
 
@@ -150,7 +154,6 @@ class RNNModel:
 
     def create_model(self, df, candles, split):
         
-
         X, Y = self.fetch_candlestick_data_with_indicators(df, candles)
 
         X_train, X_test, Y_train, Y_test = self.prepare_learning_data(X, Y, split)
@@ -158,7 +161,7 @@ class RNNModel:
         print('Start creating the model!')
 
         model = Sequential()
-        print(X_train.shape)
+
         input_layer = layers.Input(shape=(X_train.shape[1], X_train.shape[2]))
 
         #Stage 1
@@ -216,7 +219,7 @@ class RNNModel:
         '''
         #x = layers.GlobalAveragePooling1D()(x)
         #x = layers.RepeatVector(10)(x)
-        print(x.shape)
+        
         #x = layers.LSTM(128, return_sequences=False, dropout=0.2)(x)
         #x = layers.AveragePooling1D(pool_size=2)(x)
         x = layers.Flatten()(x)
@@ -263,7 +266,7 @@ class RNNModel:
         plt.legend()
         plt.show()
 
-        model.summary()
+        #model.summary()
 
         return model
     
